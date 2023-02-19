@@ -7,9 +7,9 @@ from pyspark.sql import SparkSession
 from pyspark.sql.types import *
 
 # Create logger basic config
-logging.basicConfig(filename="cleanse_data.log",
+logging.basicConfig(handlers=[logging.FileHandler(filename="cleanse_data.log",
+                                                 encoding='windows-1252', mode='w')],
                     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-                    filemode='w',
                     level=logging.DEBUG)
 
 # Create logger object that will be used to debug the app
@@ -73,7 +73,8 @@ def main():
 
     csv_file_paths = get_file_path()
 
-    read_files(spark,csv_file_paths[0])
+    df = read_files(spark,csv_file_paths[0])
+    logger.debug(f'Received the following dataframe: {df.select("tamaño_patron").take(5)}')
 
     spark.stop()
 
