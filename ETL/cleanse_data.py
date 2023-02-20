@@ -1,7 +1,8 @@
 import logging
-import sqlite3
+import sys
 import os
 import json
+import re
 import pyspark.sql.functions as f
 from pyspark.sql import SparkSession
 from pyspark.sql.types import *
@@ -49,6 +50,26 @@ def read_files(spark, csv_path):
 
     return df
 
+def IMSS_filename_parser(filepath):
+    pattern = r"(?<=\\)[^\\]+\.csv$"
+    match = re.search(pattern, filepath)
+    filename = match.group()
+    logger.debug(f'Extracted {filename} from {filepath}')
+    return filename
+
+def filter_by_state(df, state):
+    filtered_df = df.filter(df.cve_entidad == state)
+    return filtered_df
+
+def non_contextual_transformations(df):
+    no_nulls_df = df.dropna(subset=['sector_economico_1', 'sector_economico_2', 'sector_economico_4'])
+    rows_in_source_df = df.count()
+    rows_in_filtered_df = no_nulls_df.count()
+    removed_entries = rows_in_source_df - rows_in_filtered_df
+    logger.warning(f'Removed {removed_entries} NaN entries from the dataframe')
+    logger.debug(f'Source dataframe originally had {rows_in_filtered_df} rows')
+    
+
 def cast_dtypes(df):
     # Import the dtype dictionary 
     with open('PySpark_IMSS_files_dtypes.json') as dtypes_json:
@@ -62,6 +83,8 @@ def cast_dtypes(df):
 
     return df
 
+
+
 def main():
     # Create Spark Session
     spark = SparkSession.builder \
@@ -73,8 +96,20 @@ def main():
 
     csv_file_paths = get_file_path()
 
-    df = read_files(spark,csv_file_paths[0])
-    logger.debug(f'Received the following dataframe: {df.select("tamaño_patron").take(5)}')
+    state = sys.argv[1]
+
+    for file in csv_file_paths:
+        csv_date = IMSS_filename_parser(file)
+
+        logger.debug(f'Opening {file} to read as a DataFrame')
+        df = read_files(spark,file)
+
+        logger.debug(f'Selecting rows where state matches {state}')
+        filtered_df = filter_by_state(df, state)
+        
+        clean_df = non_contextual_transformations(filtered_df)
+
+    logger.debug
 
     spark.stop()
 
