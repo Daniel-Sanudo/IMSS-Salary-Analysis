@@ -1,7 +1,6 @@
 import logging
 import sys
 import os
-import json
 import re
 import pyspark.sql.functions as f
 from pyspark.sql import SparkSession
@@ -51,30 +50,70 @@ def read_files(spark, csv_path):
     return df
 
 def IMSS_filename_parser(filepath):
-    pattern = r"(?<=\\)[^\\]+\.csv$"
+    # Create month number to name dictionary:
+    month_dict = {
+        '01' : 'Enero', '02' : 'Febrero', '03' : 'Marzo',
+        '04' : 'Abril', '05' : 'Mayo', '06' : 'Junio',
+        '07' : 'Julio', '08' : 'Agosto', '09' : 'Septiembre',
+        '10' : 'Octubre', '11' : 'Noviembre', '12' : 'Diciembre'
+    }
+
+    # Create pattern to extract the filename
+    pattern = r'(?<=\\)[^\\]+\.csv$'
+    # Apply regex pattern
     match = re.search(pattern, filepath)
+    # Get filename
     filename = match.group()
     logger.debug(f'Extracted {filename} from {filepath}')
-    return filename
+
+    # Get file month 
+    month = month_dict[re.search(r'-\d{2}-', filename).group(0).replace('-','')]
+    # Get file year
+    year = re.search(r'\d{4}', filename).group(0)
+
+    logger.debug(f'Data was extracted from month {month} for year {year}')
+
+    return month, year
 
 def filter_by_state(df, state):
     filtered_df = df.filter(df.cve_entidad == state)
     return filtered_df
 
 def non_contextual_transformations(df):
+    # Drop entries where there is no salary information
     no_nulls_df = df.dropna(subset=['sector_economico_1', 'sector_economico_2', 'sector_economico_4'])
+    # Count how many rows there were before filtering
     rows_in_source_df = df.count()
+    # Count how many rows are left
     rows_in_filtered_df = no_nulls_df.count()
+    # Calculate the rows that were removed
     removed_entries = rows_in_source_df - rows_in_filtered_df
     logger.warning(f'Removed {removed_entries} NaN entries from the dataframe')
-    logger.debug(f'Source dataframe originally had {rows_in_filtered_df} rows')
-    
+    # Drop entries where complete duplicates are found
+    transformed_df = no_nulls_df.dropDuplicates()
+    # Count how many rows are left after removing duplicates
+    removed_duplicate_count = transformed_df.count()
 
+    logger.warning(f'Removed {rows_in_filtered_df - removed_duplicate_count} duplicate entries from dataframe')
+    logger.debug(f'Source dataframe originally had {rows_in_source_df} rows')
+    logger.debug(f'Clean dataframe now has {removed_duplicate_count} rows')
+    
+    return transformed_df
+    
 def cast_dtypes(df):
     # Import the dtype dictionary 
-    with open('PySpark_IMSS_files_dtypes.json') as dtypes_json:
-        IMSS_files_dtypes = json.load(dtypes_json)
-    logger.debug(f'Using the following schema: \n {IMSS_files_dtypes}')
+    IMSS_files_dtypes = {"cve_delegacion": ByteType(), "cve_subdelegacion": ByteType(), 
+                        "cve_entidad": ByteType(), "cve_municipio": StringType(), 
+                        "sector_economico_1": ShortType(), "sector_economico_2": ShortType(), 
+                        "sector_economico_4": ShortType(), "tamaño_patron": StringType(), 
+                        "sexo": ByteType(), "rango_edad": StringType(), 
+                        "rango_salarial": StringType(), "rango_uma": StringType(), 
+                        "asegurados": IntegerType(), "no_trabajadores": IntegerType(), 
+                        "ta": ShortType(), "teu": ShortType(), "tec": ShortType(), 
+                        "tpu": ShortType(), "tpc": ShortType(), "ta_sal": ShortType(), 
+                        "teu_sal": ShortType(), "tec_sal": ShortType(), "tpu_sal": ShortType(), 
+                        "tpc_sal": ShortType(), "masa_sal_ta": FloatType(), "masa_sal_teu": FloatType(), 
+                        "masa_sal_tec": FloatType(), "masa_sal_tpu": FloatType(), "masa_sal_tpc": FloatType()}
 
     # Cast dataframe as the correct dtype
     for name, dtype in IMSS_files_dtypes.items():
@@ -82,8 +121,6 @@ def cast_dtypes(df):
         df = df.withColumn(name, f.col(name).cast(dtype))
 
     return df
-
-
 
 def main():
     # Create Spark Session
@@ -99,7 +136,7 @@ def main():
     state = sys.argv[1]
 
     for file in csv_file_paths:
-        csv_date = IMSS_filename_parser(file)
+        csv_month, csv_year = IMSS_filename_parser(file)
 
         logger.debug(f'Opening {file} to read as a DataFrame')
         df = read_files(spark,file)
@@ -107,9 +144,16 @@ def main():
         logger.debug(f'Selecting rows where state matches {state}')
         filtered_df = filter_by_state(df, state)
         
-        clean_df = non_contextual_transformations(filtered_df)
+        logger.debug(f'Removing NaN and duplicate values and changing dtypes to the most efficient ones')
+        clean_df = cast_dtypes(non_contextual_transformations(filtered_df))
 
-    logger.debug
+        clean_df = clean_df.withColumn('month', f.lit(csv_month))
+        clean_df = clean_df.withColumn('year', f.lit(csv_year))
+
+        logger.debug(f'Final DataFrame Sample: {clean_df.take(1)}')
+
+
+    logger.debug(f'Finished cleaning csv files in {csv_file_paths}')
 
     spark.stop()
 
