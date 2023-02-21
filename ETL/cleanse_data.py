@@ -23,7 +23,7 @@ py4j_logger = logging.getLogger("py4j").setLevel(logging.ERROR)
 
 def get_file_path():
     # Use getcwd to get the current folder location, then change the final folder in path to access the Scraping folder
-    IMSS_files_location = os.path.join('..','Scraping','IMSS_Files')
+    IMSS_files_location = os.path.join('IMSS_Files')
     logger.debug(f'Looking for files in {IMSS_files_location}')
 
     # Get list of files in target location
@@ -31,7 +31,7 @@ def get_file_path():
     logger.debug(f'Retrieved the following file list {IMSS_files}')
 
     # Concatenate full filepath
-    IMSS_path_list = [os.path.join('..','Scraping','IMSS_Files',file) for file in IMSS_files]
+    IMSS_path_list = [os.path.join('IMSS_Files',file) for file in IMSS_files]
     logger.debug(f'Filepath list: {IMSS_path_list}')
 
     return IMSS_path_list
@@ -151,6 +151,9 @@ def main():
         clean_df = clean_df.withColumn('year', f.lit(csv_year))
 
         logger.debug(f'Final DataFrame Sample: {clean_df.take(1)}')
+
+        logger.info(f'Removing {file}')
+        os.remove(file)
 
 
     logger.debug(f'Finished cleaning csv files in {csv_file_paths}')
