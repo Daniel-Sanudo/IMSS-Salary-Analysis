@@ -84,36 +84,36 @@ def filter_by_state(df, state):
 def non_contextual_transformations(df):
     # Drop entries where there is no salary information
     no_nulls_df = df.dropna(subset=['sector_economico_1', 'sector_economico_2', 'sector_economico_4'])
+
     # Count how many rows there were before filtering
-    rows_in_source_df = df.count()
+    rows_in_source_df = df.selectExpr("count(distinct *) as count").collect()[0]['count']
+
     # Count how many rows are left
-    rows_in_filtered_df = no_nulls_df.count()
+    rows_in_filtered_df = no_nulls_df.selectExpr("count(distinct *) as count").collect()[0]['count']
+
     # Calculate the rows that were removed
     removed_entries = rows_in_source_df - rows_in_filtered_df
     logger.warning(f'Removed {removed_entries} NaN entries from the dataframe')
+
     # Drop entries where complete duplicates are found
     transformed_df = no_nulls_df.dropDuplicates()
-    # Count how many rows are left after removing duplicates
-    removed_duplicate_count = transformed_df.count()
 
+    # Count how many rows are left after removing duplicates
+    removed_duplicate_count = transformed_df.selectExpr("count(distinct *) as count").collect()[0]['count']
     logger.warning(f'Removed {rows_in_filtered_df - removed_duplicate_count} duplicate entries from dataframe')
     logger.debug(f'Source dataframe originally had {rows_in_source_df} rows')
     logger.debug(f'Clean dataframe now has {removed_duplicate_count} rows')
 
     # Count of remaining nulls and NaNs per column:
-    
-    null_counts = transformed_df.select([f.count(f.when(f.isnull(c), c)).alias(f'{c}_nan_count')  
-                                        for c in transformed_df.columns])
-    nan_counts = transformed_df.select([f.count(f.when(f.isnan(c), c)).alias(f'{c}_nan_count')  
-                                        for c in transformed_df.columns])
-    summed_null_count = null_counts.withColumn('total',reduce(add, [f.col(x) for x in null_counts.columns])).select('total')
-    summed_nan_count = nan_counts.withColumn('total',reduce(add, [f.col(x) for x in nan_counts.columns])).select('total')
-    logger.info(f'NaN count in each column: {nan_counts.take(1)}')
-    logger.info(f'Null count in each columns: {null_counts.take(1)}')
-    logger.info(f'Total null count {summed_null_count.take(1)}')
-    logger.info(f'Total nan count {summed_nan_count.take(1)}')
-    
+    null_nan_counts = transformed_df.agg(*[(f.count(f.when(f.isnan(c) | f.isnull(c), c)) / f.count('*')).alias(f'{c}_null_nan_count') for c in transformed_df.columns])
+    null_nan_counts_dict = null_nan_counts.first().asDict()
+    logger.info(f'Null and NaN count in each column: {null_nan_counts_dict}')
+    logger.info(f'Sum of Null and NaN count in dataframe: {sum(null_nan_counts_dict.values())}')
+    # Unpersist original DataFrame
+    df.unpersist()
+
     return transformed_df
+
     
 def cast_dtypes(df):
     # Import the dtype dictionary 
@@ -133,7 +133,6 @@ def cast_dtypes(df):
     # Cast dataframe as the correct dtype
     for name, dtype in IMSS_files_dtypes.items():
         if name in df.columns:
-            logger.debug(f'Casting {name} into {dtype}')
             df = df.withColumn(name, f.col(name).cast(dtype))
         else:
             logger.warning(f'{name} does not exist in dataframe')
