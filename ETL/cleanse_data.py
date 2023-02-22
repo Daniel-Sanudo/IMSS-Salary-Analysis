@@ -5,6 +5,8 @@ import re
 import pyspark.sql.functions as f
 from pyspark.sql import SparkSession
 from pyspark.sql.types import *
+from operator import add
+from functools import reduce
 
 # Create logger basic config
 logging.basicConfig(handlers=[logging.FileHandler(filename="cleanse_data.log",
@@ -97,6 +99,19 @@ def non_contextual_transformations(df):
     logger.warning(f'Removed {rows_in_filtered_df - removed_duplicate_count} duplicate entries from dataframe')
     logger.debug(f'Source dataframe originally had {rows_in_source_df} rows')
     logger.debug(f'Clean dataframe now has {removed_duplicate_count} rows')
+
+    # Count of remaining nulls and NaNs per column:
+    
+    null_counts = transformed_df.select([f.count(f.when(f.isnull(c), c)).alias(f'{c}_nan_count')  
+                                        for c in transformed_df.columns])
+    nan_counts = transformed_df.select([f.count(f.when(f.isnan(c), c)).alias(f'{c}_nan_count')  
+                                        for c in transformed_df.columns])
+    summed_null_count = null_counts.withColumn('total',reduce(add, [f.col(x) for x in null_counts.columns])).select('total')
+    summed_nan_count = nan_counts.withColumn('total',reduce(add, [f.col(x) for x in nan_counts.columns])).select('total')
+    logger.info(f'NaN count in each column: {nan_counts.take(1)}')
+    logger.info(f'Null count in each columns: {null_counts.take(1)}')
+    logger.info(f'Total null count {summed_null_count.take(1)}')
+    logger.info(f'Total nan count {summed_nan_count.take(1)}')
     
     return transformed_df
     
@@ -117,9 +132,11 @@ def cast_dtypes(df):
 
     # Cast dataframe as the correct dtype
     for name, dtype in IMSS_files_dtypes.items():
-        logger.debug(f'Casting {name} into {dtype}')
-        df = df.withColumn(name, f.col(name).cast(dtype))
-
+        if name in df.columns:
+            logger.debug(f'Casting {name} into {dtype}')
+            df = df.withColumn(name, f.col(name).cast(dtype))
+        else:
+            logger.warning(f'{name} does not exist in dataframe')
     return df
 
 def main():
@@ -153,7 +170,7 @@ def main():
         logger.debug(f'Final DataFrame Sample: {clean_df.take(1)}')
 
         logger.info(f'Removing {file}')
-        os.remove(file)
+        # os.remove(file)
 
 
     logger.debug(f'Finished cleaning csv files in {csv_file_paths}')
