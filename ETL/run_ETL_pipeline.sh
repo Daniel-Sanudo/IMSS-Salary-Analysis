@@ -27,8 +27,8 @@ fi
 # Loop through the year range and call cleanse_data.py and scrape_data.py for each year
 for (( year=$start_year; year<=$end_year; year++ )); do
     echo "Processing data for year $year"
-    python cleanse_data.py $target_state
     python scrape_data.py $year
+    spark-submit cleanse_data.py $target_state
 done
 
 echo "All data processing completed successfully."
