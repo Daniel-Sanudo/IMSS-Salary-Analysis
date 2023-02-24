@@ -5,8 +5,6 @@ import re
 import pyspark.sql.functions as f
 from pyspark.sql import SparkSession
 from pyspark.sql.types import *
-from operator import add
-from functools import reduce
 
 # Create logger basic config
 logging.basicConfig(handlers=[logging.FileHandler(filename="cleanse_data.log",
@@ -139,6 +137,8 @@ def cast_dtypes(df):
             df = df.withColumn(name, f.col(name).cast(dtype))
         else:
             logger.warning(f'{name} does not exist in dataframe')
+            logger.warning(f'Creating column {name} with Null value')
+            df = df.withColumn(name, f.lit(None).cast(StringType()))
     return df
 
 def main():
@@ -164,7 +164,7 @@ def main():
 
         logger.debug(f'Final DataFrame Sample: {clean_df.take(1)}')
 
-        logger.info(f'Removing {file}')
+        # logger.info(f'Removing {file}')
         # os.remove(file)
 
 
