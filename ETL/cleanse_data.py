@@ -39,6 +39,8 @@ def get_file_path():
     return IMSS_path_list
 
 def read_files(spark, csv_path):
+
+    logger.debug(f'Opening {csv_path} to read as a DataFrame')
     # Define the reading options
     sep = '|'
     encoding = 'windows-1252'
@@ -78,6 +80,7 @@ def IMSS_filename_parser(filepath):
     return month, year
 
 def filter_by_state(df, state):
+    logger.debug(f'Selecting rows where state matches {state}')
     filtered_df = df.filter(df.cve_entidad == state)
     return filtered_df
 
@@ -105,7 +108,7 @@ def non_contextual_transformations(df):
     logger.debug(f'Clean dataframe now has {removed_duplicate_count} rows')
 
     # Count of remaining nulls and NaNs per column:
-    null_nan_counts = transformed_df.agg(*[(f.count(f.when(f.isnan(c) | f.isnull(c), c)) / f.count('*')).alias(f'{c}_null_nan_count') for c in transformed_df.columns])
+    null_nan_counts = transformed_df.agg(*[(f.count(f.when(f.isnan(c) | f.isnull(c), c))).alias(f'{c}_null_nan_count') for c in transformed_df.columns])
     null_nan_counts_dict = null_nan_counts.first().asDict()
     logger.info(f'Null and NaN count in each column: {null_nan_counts_dict}')
     logger.info(f'Sum of Null and NaN count in dataframe: {sum(null_nan_counts_dict.values())}')
@@ -153,18 +156,11 @@ def main():
 
     for file in csv_file_paths:
         csv_month, csv_year = IMSS_filename_parser(file)
-
-        logger.debug(f'Opening {file} to read as a DataFrame')
-        df = read_files(spark,file)
-
-        logger.debug(f'Selecting rows where state matches {state}')
-        filtered_df = filter_by_state(df, state)
         
         logger.debug(f'Removing NaN and duplicate values and changing dtypes to the most efficient ones')
-        clean_df = cast_dtypes(non_contextual_transformations(filtered_df))
+        clean_df = cast_dtypes(non_contextual_transformations(filter_by_state(read_files(spark,file), state)))
 
-        clean_df = clean_df.withColumn('month', f.lit(csv_month))
-        clean_df = clean_df.withColumn('year', f.lit(csv_year))
+        clean_df = clean_df.withColumn('month', f.lit(csv_month)).withColumn('year', f.lit(csv_year))
 
         logger.debug(f'Final DataFrame Sample: {clean_df.take(1)}')
 
